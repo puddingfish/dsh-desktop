@@ -1,0 +1,56 @@
+{
+  "name": "dsh-desktop",
+  "productName": "DSH Desktop",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 的 Windows 桌面客户端：双击启动、托盘常驻、DSH 运行时与壳自动更新。",
+  "main": "src/main.js",
+  "author": "dsh-desktop",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "electron .",
+    "make-icons": "powershell -ExecutionPolicy Bypass -File scripts/make-icons.ps1",
+    "dist": "electron-builder --win --dir && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-portable.ps1",
+    "pack": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "com.deepseekharness.dshdesktop",
+    "productName": "DSH Desktop",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/icon-*.png",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "dir", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "DSH Desktop"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "YOUR_GITHUB_USERNAME",
+        "repo": "dsh-desktop"
+      }
+    ]
+  }
+}

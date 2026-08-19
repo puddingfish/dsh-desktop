@@ -1,0 +1,36 @@
+{
+  "name": "dsh-mmx-vision",
+  "version": "0.1.0",
+  "description": "DSH 图像理解插件：接管 describe_image 工具，后端为本地 mmx CLI（MiniMax VLM）。支持本地路径 / http(s) URL / 附件引用；含输入框图片按钮（附件上传路由 + 发送改写 + 会话内缩略图预览）与设置卡片。移植自 @linxin666/dsh-tool-describe-image（Apache-2.0）。",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.zh.md"
+  ],
+  "license": "Apache-2.0"
+}

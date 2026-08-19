@@ -1,0 +1,16 @@
+{
+  "name": "deepseekharness",
+  "version": "1.0.0",
+  "description": "为 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 打造的本地增强套件：",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
