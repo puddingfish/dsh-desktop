@@ -161,6 +161,6 @@ dsh-desktop/
 
 ## 📄 许可与致谢
 
-- 桌面客户端与插件：随本仓库发布。
+- 本仓库（桌面客户端 + 插件 + 文档）以 **[Apache-2.0](LICENSE)** 协议开源。
 - dsh-mmx-vision 移植自 [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 的 `@linxin666/dsh-tool-describe-image`（Apache-2.0）：附件路由 / 发送改写 / 缩略图预览 / 设置卡片骨架。
 - 感谢 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 与 [Electron](https://www.electronjs.org/)。

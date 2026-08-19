@@ -1,14 +1,14 @@
 {
-  "name": "deepseekharness",
+  "name": "dsh-desktop-repo",
   "version": "1.0.0",
-  "description": "为 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 打造的本地增强套件：",
-  "main": "index.js",
+  "description": "DSH Desktop —— DeepSeek Harness 的 Windows 桌面客户端与本地增强插件套件",
+  "private": true,
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "puddingfish",
+  "license": "Apache-2.0",
   "type": "commonjs",
   "dependencies": {
     "playwright": "^1.62.1"
