@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>DSH Desktop</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #161b26;
+    color: #e8eaf0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+  .logo { width: 96px; height: 96px; border-radius: 20px; }
+  h1 { font-size: 17px; font-weight: 600; letter-spacing: 0.02em; }
+  .titleBlock { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .byline { font-size: 12px; color: #7e8799; letter-spacing: 0.08em; }
+  .status { min-height: 20px; font-size: 13px; color: #9aa3b5; text-align: center; }
+  .stage { color: #cdd4e3; font-weight: 600; }
+  .detail { margin-top: 4px; font-size: 12px; }
+  .bar {
+    width: 240px; height: 4px; border-radius: 999px; background: #262d3d;
+    overflow: hidden; position: relative;
+  }
+  .bar::after {
+    content: ""; position: absolute; inset: 0; width: 40%;
+    background: linear-gradient(90deg, transparent, #4f6ef7, transparent);
+    animation: slide 1.2s ease-in-out infinite;
+  }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+  .error { max-width: 420px; padding: 14px 18px; border-radius: 10px; background: #2a1e22; border: 1px solid #58323a; font-size: 12px; color: #e08b96; line-height: 1.7; word-break: break-all; display: none; }
+  button {
+    display: none; -webkit-app-region: no-drag;
+    padding: 9px 26px; border: 0; border-radius: 8px;
+    background: #4f6ef7; color: #fff; font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: #3d5df5; }
+  footer { position: absolute; bottom: 18px; font-size: 11px; color: #5b6478; }
+  .close {
+    position: absolute; top: 10px; right: 12px; -webkit-app-region: no-drag;
+    width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent;
+    color: #6b7488; font-size: 16px; line-height: 28px; text-align: center; cursor: pointer;
+  }
+  .close:hover { background: #2a3143; color: #e8eaf0; }
+</style>
+</head>
+<body>
+  <button class="close" id="close" title="退出 DSH Desktop">×</button>
+  <img class="logo" src="../assets/icon-256.png" alt="DSH">
+  <div class="titleBlock">
+    <h1>DeepSeek Harness</h1>
+    <div class="byline">by 韋家小寶</div>
+  </div>
+  <div class="status">
+    <div class="stage" id="stage">正在准备…</div>
+    <div class="detail" id="detail"></div>
+  </div>
+  <div class="bar" id="bar"></div>
+  <div class="error" id="error"></div>
+  <button id="retry">重试</button>
+  <footer>DSH Desktop · 双击托盘图标随时回来</footer>
+  <script>
+    const stageEl = document.getElementById('stage')
+    const detailEl = document.getElementById('detail')
+    const errorEl = document.getElementById('error')
+    const retryEl = document.getElementById('retry')
+    const barEl = document.getElementById('bar')
+    window.dshDesktop.onBootStatus(({ stage, detail }) => {
+      stageEl.textContent = stage ?? ''
+      detailEl.textContent = detail ?? ''
+    })
+    window.dshDesktop.onBootFailed((message) => {
+      stageEl.textContent = '启动失败'
+      detailEl.textContent = ''
+      barEl.style.display = 'none'
+      errorEl.style.display = 'block'
+      errorEl.textContent = message ?? '未知错误'
+      retryEl.style.display = 'inline-block'
+    })
+    retryEl.addEventListener('click', () => {
+      errorEl.style.display = 'none'
+      retryEl.style.display = 'none'
+      barEl.style.display = 'block'
+      stageEl.textContent = '正在重试…'
+      window.dshDesktop.retry()
+    })
+    document.getElementById('close').addEventListener('click', () => {
+      window.dshDesktop.quitApp()
+    })
+  </script>
+</body>
+</html>

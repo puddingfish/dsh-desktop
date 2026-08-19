@@ -1,0 +1,28 @@
+# 依赖与构建产物
+node_modules/
+dist/
+desktop/dsh-desktop/release/
+desktop/dsh-desktop/*.tgz
+# 注：desktop/dsh-desktop/build/ 是 electron-builder 资源目录（图标），需进库
+
+# 本地杂项
+*.log
+.test-*
+.model-router-debug.log
+.desktop-dev.log
+.web-profile.log
+.DS_Store
+Thumbs.db
+
+# 会话内临时工具（不进库）
+.git-*
+.show-*
+.bg-net-test.txt
+.github-release.js
+.desktop-updater*
+
+# 桌面端运行时数据（绝不该进库）
+desktop/dsh-desktop/runtime/
+
+# 本地专用文档（开发过程记录/内部讨论，不上传 GitHub）
+local-docs/

@@ -1,0 +1,5 @@
+# dsh-model-router bundle patch：把模型路由插件行插入 profile。
+# 通过 `dsh plugin --profile web add <本目录绝对路径>` 安装后自动生效。
+- insert:
+    - id: model-router
+      name: 'dsh-model-router'

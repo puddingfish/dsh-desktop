@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>DSH Desktop</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color-scheme: light dark;
+  }
+  /* 标题栏：跟随 dsh web 页面实际主题（主进程读 data-ds-dark-theme 同步，
+     而非系统主题——用户可在 web 里独立切换明暗） */
+  .titlebar {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    -webkit-app-region: drag;
+    transition: background 0.15s ease;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    background: rgb(249, 250, 251);
+  }
+  body.theme-dark .titlebar {
+    background: rgb(21, 21, 23);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; flex: 1; min-width: 0;
+    font-size: 12px; font-weight: 500; color: rgb(55, 63, 81);
+  }
+  body.theme-dark .brand { color: rgb(151, 157, 166); }
+  .brand img { width: 18px; height: 18px; border-radius: 4px; flex: none; }
+  .brand .ws {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 400; opacity: 0.65; margin-left: 2px;
+  }
+  /* Windows 风格窗控按钮 */
+  .controls { display: flex; height: 100%; flex: none; -webkit-app-region: no-drag; }
+  .controls button {
+    width: 46px; height: 100%;
+    border: 0; background: transparent; cursor: default;
+    display: flex; align-items: center; justify-content: center;
+    color: rgb(55, 63, 81);
+    outline: none;
+  }
+  body.theme-dark .controls button { color: rgb(207, 211, 214); }
+  .controls button:hover { background: rgba(0, 0, 0, 0.06); }
+  .controls button:active { background: rgba(0, 0, 0, 0.1); }
+  body.theme-dark .controls button:hover { background: rgba(255, 255, 255, 0.08); }
+  body.theme-dark .controls button:active { background: rgba(255, 255, 255, 0.12); }
+  .controls button.close:hover { background: rgb(232, 17, 35); color: #fff; }
+  .controls button.close:active { background: rgb(216, 15, 31); color: #fff; }
+  .controls svg { width: 10px; height: 10px; }
+  /* 内容区占位（WebContentsView 实际盖在其上） */
+  .content { height: calc(100vh - 38px); }
+</style>
+</head>
+<body>
+  <div class="titlebar" id="titlebar">
+    <div class="brand">
+      <img src="../assets/icon-256.png" alt="">
+      <span>DSH Desktop</span>
+      <span class="ws" id="ws"></span>
+    </div>
+    <div class="controls">
+      <button id="min" title="最小化">
+        <svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+      <button id="max" title="最大化 / 还原">
+        <svg id="max-icon" viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        <svg id="restore-icon" viewBox="0 0 10 10" style="display:none">
+          <rect x=".5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/>
+          <path d="M2.5 2.5V.5h7v7h-2" fill="none" stroke="currentColor" stroke-width="1"/>
+        </svg>
+      </button>
+      <button id="close" class="close" title="关闭（藏到托盘）">
+        <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="content"></div>
+  <script>
+    const applyTheme = (dark) => {
+      document.body.classList.toggle('theme-dark', dark === true)
+      document.body.classList.toggle('theme-light', dark !== true)
+    }
+    window.dshDesktop.onThemeChanged(applyTheme)
+    window.dshDesktop.getTheme().then(applyTheme)
+    const maxIcon = document.getElementById('max-icon')
+    const restoreIcon = document.getElementById('restore-icon')
+    function renderState (maximized) {
+      maxIcon.style.display = maximized ? 'none' : ''
+      restoreIcon.style.display = maximized ? '' : 'none'
+      document.getElementById('max').title = maximized ? '向下还原' : '最大化'
+    }
+    window.dshDesktop.onWindowStateChanged(renderState)
+    window.dshDesktop.getWindowState().then(renderState)
+    window.dshDesktop.getInfo().then((info) => {
+      const el = document.getElementById('ws')
+      el.textContent = '— ' + (info.workspace ?? '')
+    })
+    document.getElementById('min').addEventListener('click', () => window.dshDesktop.windowMinimize())
+    document.getElementById('max').addEventListener('click', () => window.dshDesktop.windowToggleMaximize())
+    document.getElementById('close').addEventListener('click', () => window.dshDesktop.windowClose())
+    // 双击标题栏 = 最大化/还原（Windows 惯例）
+    document.getElementById('titlebar').addEventListener('dblclick', (e) => {
+      if (e.target.closest('.controls')) return
+      window.dshDesktop.windowToggleMaximize()
+    })
+  </script>
+</body>
+</html>

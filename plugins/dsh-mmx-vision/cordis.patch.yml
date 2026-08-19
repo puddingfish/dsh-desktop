@@ -1,0 +1,7 @@
+# dsh-mmx-vision bundle patch：把 mmx 图像理解插件行插入 profile。
+# 注意：本插件接管 describe_image 工具名，需禁用 dsh-web-ui-all 聚合包中的
+# 旧 describe-image 插件行（install-plugins.ps1 会自动在 ~/.dsh/cordis.patch.yml
+# 写入 - id: web-ui-describe-image / disabled: true）。
+- insert:
+    - id: mmx-vision
+      name: 'dsh-mmx-vision'
