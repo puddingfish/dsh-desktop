@@ -401,25 +401,31 @@ async function runMmx(spec, args, signal) {
     child.stderr.on('data', (chunk) => {
       if (stderr.length < 4000) stderr += chunk.toString('utf8')
     })
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true
-        child.kill()
-        rejectPromise(new Error(`mmx-vision: mmx timed out after ${spec.timeoutMs} ms`))
-      }
-    }, spec.timeoutMs)
+    // 资源清理约定：所有 settle 路径（超时/abort/error/close）都要
+    // clearTimeout + removeEventListener，防止监听器与定时器句柄残留
+    // （闭包持有 child/stdout/stderr，长信号上会累积）。
     const onAbort = () => {
       if (!settled) {
         settled = true
+        clearTimeout(timer)
         child.kill()
         rejectPromise(new Error('mmx-vision: aborted'))
       }
     }
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        signal?.removeEventListener('abort', onAbort)
+        child.kill()
+        rejectPromise(new Error(`mmx-vision: mmx timed out after ${spec.timeoutMs} ms`))
+      }
+    }, spec.timeoutMs)
     signal?.addEventListener('abort', onAbort, { once: true })
     child.on('error', (error) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       rejectPromise(new Error(
         looksLikeMmxMissing(error, '') ? MMX_MISSING_GUIDANCE : `mmx-vision: failed to start mmx: ${error.message}`,
       ))
@@ -428,6 +434,7 @@ async function runMmx(spec, args, signal) {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       if (code === 0) {
         resolvePromise(stdout)
       } else if (looksLikeMmxMissing(undefined, stderr)) {

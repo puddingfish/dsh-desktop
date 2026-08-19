@@ -95,6 +95,24 @@ function resolveFeed() {
   return undefined
 }
 
+/** 已挂在 autoUpdater 上的事件桥（单例只 wire 一次，防监听器累积）。 */
+let wiredEvents = undefined
+
+/**
+ * 把事件回调桥接到 autoUpdater（模块级单例）。
+ * 手动检查可反复调用：监听器只注册一次，每次调用仅更新回调目标，
+ * 避免托盘每点一次「检查更新」就叠加一组监听器。
+ */
+function wireEvents(autoUpdater, events) {
+  wiredEvents = events
+  if (wireEvents.done) return
+  wireEvents.done = true
+  autoUpdater.on('update-available', (info) => wiredEvents?.onAvailable?.(info))
+  autoUpdater.on('download-progress', (progress) => wiredEvents?.onProgress?.(progress))
+  autoUpdater.on('update-downloaded', (info) => wiredEvents?.onDownloaded?.(info))
+  autoUpdater.on('error', (error) => wiredEvents?.onError?.(error))
+}
+
 /** 初始化并检查更新；返回 { status, message, ... }。 */
 async function checkForUpdates(events) {
   const feed = resolveFeed()
@@ -117,10 +135,7 @@ async function checkForUpdates(events) {
     autoUpdater.setFeedURL({ provider: 'github', owner: feed.owner, repo: feed.repo })
   }
   if (events !== undefined) {
-    autoUpdater.on('update-available', (info) => events.onAvailable?.(info))
-    autoUpdater.on('download-progress', (progress) => events.onProgress?.(progress))
-    autoUpdater.on('update-downloaded', (info) => events.onDownloaded?.(info))
-    autoUpdater.on('error', (error) => events.onError?.(error))
+    wireEvents(autoUpdater, events)
   }
   try {
     const result = await autoUpdater.checkForUpdates()

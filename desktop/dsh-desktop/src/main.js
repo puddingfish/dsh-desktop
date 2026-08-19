@@ -134,10 +134,13 @@ function applyTheme(dark) {
 function startThemeSync() {
   const view = contentView
   if (view === undefined) return
+  // 闭包持有自己的 timer id：视图重建后旧闭包自查失效时只清自己的
+  // 定时器，不误杀绑定新视图的新定时器。
+  let timerId = undefined
   const query = async () => {
     if (contentView !== view || view.webContents.isDestroyed()) {
-      clearInterval(themeTimer)
-      themeTimer = undefined
+      if (timerId !== undefined) clearInterval(timerId)
+      if (themeTimer === timerId) themeTimer = undefined
       return
     }
     // 只在真正的 dsh web 页面上读取主题（重连页等本地页保持当前主题）
@@ -150,7 +153,10 @@ function startThemeSync() {
     } catch { /* 页面跳转中 */ }
   }
   query()
-  if (themeTimer === undefined) themeTimer = setInterval(query, 1200)
+  // 总是重建定时器并绑定当前视图（旧定时器一并清除，全局至多一个）
+  if (themeTimer !== undefined) clearInterval(themeTimer)
+  timerId = setInterval(query, 1200)
+  themeTimer = timerId
 }
 
 function createMainWindow(url) {
