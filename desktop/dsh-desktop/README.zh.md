@@ -7,7 +7,7 @@
 - **双击启动**：绿色免安装 zip，解压即用，无需管理员权限、不写注册表；
 - **自定义标题栏**：跟随 dsh web 页面主题（非系统主题）明暗切换，Windows 风格最小化 / 最大化 / 关闭按钮，双击标题栏最大化；
 - **托盘常驻**：关闭窗口即藏到托盘，双击托盘图标随时回来，托盘菜单可完全退出；
-- **DSH 运行时自动管理**：优先复用系统 Node.js（22.19+ / 24+），没有则自动从镜像下载独立运行时（约 30 MB，仅一次）；DSH 本体经 npm 安装在 `%APPDATA%\DSH Desktop\dsh-runtime`，启动时自动比对升级（托盘菜单也可手动「检查 DSH 更新」）；
+- **DSH 运行时自动管理**：优先复用系统 Node.js（22.19+ / 24+），没有则自动从镜像下载独立运行时（约 30 MB，仅一次）；DSH 本体优先复用 **npm 全局安装**（`npm i -g @deepseek-ai/dsh`，升级由用户自管，桌面端启动零联网零下载），没有全局安装时才自管安装到 `%APPDATA%\DSH Desktop\dsh-runtime`。启动时做一次**轻量版本检查**（失败静默跳过）：有新版会在启动页让你选择「立即更新 / 跳过直接启动」，更新才执行 npm 安装，绝不卡启动；托盘菜单也可手动「检查 DSH 更新（npm）」；
 - **壳自动更新**：接入 electron-updater / GitHub Releases（更新源已配置为 [puddingfish/dsh-desktop](https://github.com/puddingfish/dsh-desktop)，见下文）；
 - **启动页**：Logo + 进度条 + 阶段文案（准备运行时 → 安装/升级 → 启动服务），失败可一键重试；
 - **多开避让**：默认端口 3080 被占用时自动落到 3081+。
@@ -17,11 +17,13 @@
 ```
 %APPDATA%\DSH Desktop\
 ├── config.json      # 工作区、端口、更新开关等
-├── dsh-runtime\     # npm 管理的 @deepseek-ai/dsh（自动升级）
+├── dsh-runtime\     # 自管模式下的 @deepseek-ai/dsh（无 npm 全局安装时才使用）
 └── logs\
     ├── dsh-web.log      # 本次 dsh web 服务日志
     └── dsh-web.prev.log # 上次日志
 ```
+
+> 优先级：环境变量 `DSH_DESKTOP_DSH_ENTRY`（显式指定入口）＞ npm 全局安装（`%APPDATA%\npm\node_modules\@deepseek-ai\dsh`）＞ 自管 `dsh-runtime`。托盘菜单「DSH 运行时」一行会标注当前来源（npm 全局 / 内置自管 / 自定义入口）。
 
 ## 开发
 
@@ -37,6 +39,7 @@ npm run dist           # pack + make-portable.ps1 → release\DSH-Desktop-<版�
 环境变量（弱网/内网可用）：
 
 - `DSH_DESKTOP_NPM_REGISTRY`：npm 源覆盖（默认官方源 → npmmirror 自动回退）；
+- `DSH_DESKTOP_DSH_ENTRY`：dsh 入口 js 文件覆盖（调试/特殊部署用，优先级最高）；
 - `ELECTRON_MIRROR`：Electron 二进制镜像（如 `https://npmmirror.com/mirrors/electron/`）。
 
 ## 打包发布（绿色版）

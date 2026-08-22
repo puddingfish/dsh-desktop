@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     ipcRenderer.on('boot-failed', handler)
     return () => ipcRenderer.removeListener('boot-failed', handler)
   },
+  /** 启动页订阅更新选择请求（版本对比结果）。 */
+  onUpdateChoice: (listener) => {
+    const handler = (_event, update) => listener(update)
+    ipcRenderer.on('boot-update-choice', handler)
+    return () => ipcRenderer.removeListener('boot-update-choice', handler)
+  },
+  /** 启动页回传更新选择（'update' | 'skip'）。 */
+  chooseUpdate: (choice) => ipcRenderer.invoke('boot-update-choice', choice),
   /** 重连页：重启服务。 */
   retry: () => ipcRenderer.invoke('boot-retry'),
   /** 启动页 × 按钮：退出整个应用。 */

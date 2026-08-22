@@ -3,8 +3,10 @@
  * - Node.js 运行时：优先系统 Node（PATH/常见安装位扫描）；不可用时从镜像下载
  *   官方 node-vX-win-x64.zip 到 userData/runtimes 解压使用（避免与 Electron 的
  *   Node ABI 冲突——dsh 依赖 node-pty 等 NAN 原生模块）。
- * - dsh 本体：npm install @deepseek-ai/dsh 到 userData/dsh-runtime（registry
- *   官方→npmmirror 自动回退），启动时比对最新版本自动升级。
+ * - dsh 本体：优先复用已有安装——npm 全局安装（%APPDATA%\npm，升级由用户
+ *   `npm i -g` 自管，启动零联网零下载）；没有全局安装时才 npm install 到
+ *   userData/dsh-runtime 自管（registry 官方→npmmirror 自动回退，启动比对
+ *   最新版自动升级）。环境变量 DSH_DESKTOP_DSH_ENTRY 可显式指定入口文件。
  * - 服务器生命周期：spawn `node dsh/bin.js web --port <free>`，stdout/stderr 落盘
  *   日志轮询 `dsh web: <url>` 就绪行 + HTTP 探测双保险。
  * - 所有子进程 stdio 一律重定向到文件（不用 pipe）：兼容受限执行环境，且天然
@@ -31,9 +33,42 @@ function paths() {
     logs: path.join(dataDir, 'logs'),
     tmp: path.join(dataDir, 'tmp'),
     nodeExe: nodeExePath(),
-    dshEntry: path.join(dataDir, 'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+    dshEntry: resolveDshEntry(),
     state: path.join(dataDir, 'runtime-state.json'),
   }
+}
+
+/**
+ * dsh 入口解析顺序：
+ * 1. 环境变量 DSH_DESKTOP_DSH_ENTRY（显式指定入口 js，调试/特殊部署用）
+ * 2. npm 全局安装（%APPDATA%\npm\node_modules\@deepseek-ai\dsh\lib\bin.js）——
+ *    用户 `npm i -g @deepseek-ai/dsh` 自管版本，桌面端零联网、零下载、秒启动
+ * 3. 自管安装（userData/dsh-runtime\node_modules\@deepseek-ai\dsh\lib\bin.js）
+ */
+function resolveDshEntry() {
+  const override = process.env.DSH_DESKTOP_DSH_ENTRY
+  if (typeof override === 'string' && override !== '' && existsSync(override)) return override
+  const globalEntry = globalDshEntry()
+  if (globalEntry !== '') return globalEntry
+  return path.join(dataDir, 'dsh-runtime', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+}
+
+/** npm 全局安装的 dsh 入口（没有返回空串）。 */
+function globalDshEntry() {
+  // npm config get prefix 的默认值；直接按标准位置探测，避免 spawn npm 进程
+  const appdata = process.env.APPDATA ?? ''
+  if (appdata === '') return ''
+  const entry = path.join(appdata, 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+  return existsSync(entry) ? entry : ''
+}
+
+/** 当前 dsh 安装来源描述（托盘菜单显示用）。 */
+function dshSource() {
+  const entry = resolveDshEntry()
+  if (entry === '') return ''
+  if (process.env.DSH_DESKTOP_DSH_ENTRY === entry) return 'env'
+  if (entry === globalDshEntry()) return 'npm-global'
+  return 'managed'
 }
 
 /** 当前固定的 Node 大版本（下载兜底时用；优先复用系统 Node）。 */
@@ -212,14 +247,31 @@ async function latestDshVersion() {
   throw new Error('npm registry 不可达（官方与镜像均失败）')
 }
 
-/** 已安装的 dsh 版本（读它 package.json）。 */
+/** 已安装的 dsh 版本（读当前生效入口旁的 package.json；未安装返回 undefined）。 */
 function installedDshVersion() {
   try {
-    const pkg = JSON.parse(readFileSync(path.join(paths().dshRuntime, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'))
+    const entry = resolveDshEntry()
+    if (!existsSync(entry)) return undefined
+    const pkg = JSON.parse(readFileSync(path.join(path.dirname(path.dirname(entry)), 'package.json'), 'utf8'))
     return pkg.version
   } catch {
     return undefined
   }
+}
+
+/**
+ * 当前 dsh 版本是否 ≥ 指定版本（只比 x.y.z 数字段；预发布后缀如 -rc.2
+ * 视为等于其主版本，不单独比较——发布候选即视为已具备该版本特性）。
+ */
+function dshVersionAtLeast(minVersion) {
+  const current = installedDshVersion()
+  if (current === undefined) return false
+  const parse = (v) => v.replace(/^v/, '').split(/[.-]/).slice(0, 3).map((n) => Number.parseInt(n, 10) || 0)
+  const [cMaj, cMin, cPat] = parse(current)
+  const [mMaj, mMin, mPat] = parse(minVersion)
+  if (cMaj !== mMaj) return cMaj > mMaj
+  if (cMin !== mMin) return cMin > mMin
+  return cPat >= mPat
 }
 
 // ---------------------------------------------------------------------------
@@ -369,9 +421,11 @@ async function resolveNpmRegistry() {
 /**
  * 带 registry 回退与超时看门狗的 npm install：
  * 单次尝试 15 分钟上限；失败自动换下一个 registry 重试。
+ * @param installArgs - npm install 参数（如 ['install','@deepseek-ai/dsh@latest']
+ *   或全局升级 ['install','-g','@deepseek-ai/dsh@latest']）。
  * @returns 成功的 registry。
  */
-async function npmInstallWithFallback(nodeExe, npmCli, dshRuntime, onStatus) {
+async function npmInstallWithFallback(nodeExe, npmCli, installArgs, cwd, onStatus) {
   const primary = await resolveNpmRegistry()
   const order = [primary, ...NPM_REGISTRIES.filter((r) => r !== primary)]
   let lastError
@@ -380,11 +434,11 @@ async function npmInstallWithFallback(nodeExe, npmCli, dshRuntime, onStatus) {
     try {
       onStatus?.('npm install', `registry: ${label}`)
       const result = await runToFile(nodeExe, [
-        npmCli, 'install', '@deepseek-ai/dsh@latest',
+        npmCli, ...installArgs,
         '--registry', registry,
         '--fetch-timeout=120000', '--fetch-retries=1',
         '--no-audit', '--no-fund', '--loglevel', 'error',
-      ], { cwd: dshRuntime, timeoutMs: 15 * 60_000 })
+      ], { cwd, timeoutMs: 15 * 60_000 })
       if (result.code !== 0) throw new Error(result.stderr.split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 400))
       // 成功：记住这个 registry，下次直接用
       writeState({ ...readState(), npmRegistry: registry })
@@ -398,30 +452,70 @@ async function npmInstallWithFallback(nodeExe, npmCli, dshRuntime, onStatus) {
 }
 
 /**
- * 确保 dsh 已安装且为最新；必要时 npm install / 升级。
+ * 确保 dsh 已安装可用：
+ * - env 指定 / npm 全局 / 自管任一入口存在即通过（不再自动升级，升级时机
+ *   交给启动页的更新选择与托盘菜单，杜绝启动卡在半小时 npm install）。
+ * - 完全没有时：初始化 dsh-runtime 并 npm install（首次安装，无可跳过）。
  * @param onStatus - 进度回调。
- * @returns 安装/升级动作描述（无动作返回 null）。
+ * @returns 安装动作描述（无需动作返回 null）。
  */
 async function ensureDsh(onStatus) {
   const { dshRuntime } = paths()
   const nodeExe = nodeExePath()
   const npmCli = npmCliPath()
   if (nodeExe === '' || npmCli === '') throw new Error('Node 运行时未就绪（ensureNodeRuntime 未完成）')
-  const installed = installedDshVersion()
-  const latest = await latestDshVersion().catch(() => undefined)
-  if (installed !== undefined && existsSync(paths().dshEntry)) {
-    if (latest === undefined || latest === installed) return null
-    onStatus?.('升级 DeepSeek Harness', `${installed} → ${latest}`)
-    await npmInstallWithFallback(nodeExe, npmCli, dshRuntime, onStatus)
-    log('dsh updated:', installed, '->', installedDshVersion())
-    return `dsh ${installed} → ${installedDshVersion()}`
+  if (existsSync(paths().dshEntry)) {
+    // 入口可用：全局/自管已装，直接用（版本升级交给启动页选择/托盘菜单）
+    return null
   }
+  const latest = await latestDshVersion().catch(() => undefined)
   onStatus?.('安装 DeepSeek Harness', latest !== undefined ? `@deepseek-ai/dsh@${latest}` : '最新版')
   mkdirSync(dshRuntime, { recursive: true })
   writeFileSync(path.join(dshRuntime, 'package.json'), JSON.stringify({ name: 'dsh-desktop-runtime', private: true }, null, 2))
-  await npmInstallWithFallback(nodeExe, npmCli, dshRuntime, onStatus)
+  await npmInstallWithFallback(nodeExe, npmCli, ['install', '@deepseek-ai/dsh@latest'], dshRuntime, onStatus)
   log('dsh installed:', installedDshVersion())
   return `dsh ${installedDshVersion()} 已安装`
+}
+
+/**
+ * 查询 dsh 更新（不安装）：
+ * @returns { available, installed, latest, source }——installed/latest 均可能为
+ * undefined（读不到/查不到），available 仅在两者皆有且不等时为 true。
+ */
+async function checkDshUpdate() {
+  const installed = installedDshVersion()
+  const latest = await latestDshVersion().catch(() => undefined)
+  return {
+    available: installed !== undefined && latest !== undefined && installed !== latest,
+    installed,
+    latest,
+    source: dshSource(),
+  }
+}
+
+/**
+ * 执行 dsh 升级（用户在启动页/托盘菜单明确选择后调用）：
+ * - npm-global 来源：npm i -g @deepseek-ai/dsh@latest（装进 %APPDATA%\npm）
+ * - managed 来源：npm install 到 userData/dsh-runtime
+ * @returns 升级后的版本号。
+ */
+async function upgradeDsh(onStatus) {
+  const { dshRuntime } = paths()
+  const nodeExe = nodeExePath()
+  const npmCli = npmCliPath()
+  if (nodeExe === '' || npmCli === '') throw new Error('Node 运行时未就绪')
+  if (dshSource() === 'npm-global') {
+    onStatus?.('升级 DeepSeek Harness（npm 全局）', 'npm i -g @deepseek-ai/dsh@latest')
+    // 全局安装 cwd 无关紧要（install -g 按 prefix 装入），取 userData 兜底
+    await npmInstallWithFallback(nodeExe, npmCli, ['install', '-g', '@deepseek-ai/dsh@latest'], dataDir, onStatus)
+    log('dsh (global) upgraded to:', installedDshVersion())
+  } else {
+    const latest = await latestDshVersion().catch(() => undefined)
+    onStatus?.('升级 DeepSeek Harness', `${installedDshVersion()} → ${latest ?? '最新版'}`)
+    await npmInstallWithFallback(nodeExe, npmCli, ['install', '@deepseek-ai/dsh@latest'], dshRuntime, onStatus)
+    log('dsh (managed) upgraded to:', installedDshVersion())
+  }
+  return installedDshVersion()
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +580,12 @@ class DshServer {
       await fs.rename(logPath, path.join(logs, 'dsh-web.prev.log'))
     } catch { /* 首次启动无旧日志 */ }
     const outFd = openSync(logPath, 'a')
-    const child = spawn(nodeExe, [dshEntry, 'web', '--port', String(port)], {
+    // dsh ≥0.1.1 的 web 模式默认自动开系统浏览器（桌面端有自己的窗口，再弹
+    // 浏览器是重复打扰）；0.1.0-rc.7 等旧版不认识 --no-open（unknown option
+    // 会直接退出），按版本号决定是否传参。
+    const args = ['web', '--port', String(port)]
+    if (dshVersionAtLeast('0.1.1')) args.push('--no-open')
+    const child = spawn(nodeExe, [dshEntry, ...args], {
       cwd,
       windowsHide: true,
       env: {
@@ -567,8 +666,12 @@ module.exports = {
   readState,
   ensureNodeRuntime,
   ensureDsh,
+  checkDshUpdate,
+  upgradeDsh,
   installedDshVersion,
   latestDshVersion,
+  dshSource,
+  dshVersionAtLeast,
   resolveSystemNode,
   findFreePort,
   probeHttp,

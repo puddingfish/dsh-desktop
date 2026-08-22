@@ -298,24 +298,23 @@ function createTray() {
         click: () => runShellUpdate(true),
       },
       {
-        label: `DSH 运行时：${runtime.installedDshVersion() ?? '未安装'}`,
+        label: `DSH 运行时：${runtime.installedDshVersion() ?? '未安装'}${dshSourceLabel()}`,
         enabled: false,
       },
       {
         label: '检查 DSH 更新（npm）',
         click: async () => {
           try {
-            const latest = await runtime.latestDshVersion()
-            const installed = runtime.installedDshVersion()
-            if (latest === installed) {
-              dialog.showMessageBox({ type: 'info', message: `DSH 已是最新（${installed}）。` })
+            const update = await runtime.checkDshUpdate()
+            if (!update.available) {
+              dialog.showMessageBox({ type: 'info', message: `DSH 已是最新（${update.installed ?? '未知'}）。` })
               return
             }
             const choice = await dialog.showMessageBox({
               type: 'question',
               buttons: ['升级并重启服务', '暂不'],
               defaultId: 0,
-              message: `DSH 有新版本：${installed} → ${latest}。现在升级？`,
+              message: `DSH 有新版本：${update.installed} → ${update.latest}。现在升级？`,
             })
             if (choice.response === 0) await restartServer(true)
           } catch (error) {
@@ -385,6 +384,35 @@ async function runShellUpdate(manual) {
 // 启动 / 重启流程
 // ---------------------------------------------------------------------------
 
+/**
+ * 启动页更新选择：向 splash 发送版本信息，等用户点「立即升级」或「跳过」。
+ * 事件每 800ms 重发一次直到选择完成（覆盖 splash 尚未完成加载的窗口期，
+ * UI 幂等）；splash 被关掉（等价退出）或 5 分钟超时 → 视为跳过。
+ * @returns 'update' | 'skip'
+ */
+function askUpdateChoice(update) {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      clearInterval(resender)
+      ipcMain.removeHandler('boot-update-choice')
+      resolve(value)
+    }
+    const timer = setTimeout(() => finish('skip'), 5 * 60_000)
+    const resender = setInterval(() => {
+      if (splashWindow === undefined || splashWindow.isDestroyed()) return
+      splashWindow.webContents.send('boot-update-choice', update)
+    }, 800)
+    ipcMain.handle('boot-update-choice', (_event, choice) => {
+      finish(choice === 'update' ? 'update' : 'skip')
+      return true
+    })
+  })
+}
+
 async function boot(skipRuntimeWork) {
   if (booting) return
   booting = true
@@ -395,6 +423,25 @@ async function boot(skipRuntimeWork) {
       pushStatus('准备运行时', '检查 Node.js / DeepSeek Harness')
       await runtime.ensureNodeRuntime(pushStatus)
       await runtime.ensureDsh(pushStatus)
+      // 轻量更新检查（一次 HTTP 查询，失败静默跳过）→ 启动页让用户选择
+      const update = await runtime.checkDshUpdate()
+      if (update.available) {
+        pushStatus('发现新版本', `dsh ${update.installed} → ${update.latest}（启动页选择是否升级）`)
+        const choice = await askUpdateChoice(update)
+        if (choice === 'update') {
+          pushStatus('升级 DeepSeek Harness', `${update.installed} → ${update.latest}`)
+          try {
+            const upgraded = await runtime.upgradeDsh(pushStatus)
+            pushStatus('升级完成', `dsh ${upgraded} 已就绪`)
+          } catch (error) {
+            // 升级失败不阻断启动：继续用当前版本
+            pushStatus('升级失败', `继续使用 dsh ${update.installed}（${error.message}）`)
+            await new Promise((r) => setTimeout(r, 1500))
+          }
+        } else {
+          pushStatus('跳过升级', `继续使用 dsh ${update.installed}`)
+        }
+      }
     }
     server ??= new runtime.DshServer()
     if (server.running) {
@@ -425,7 +472,17 @@ async function boot(skipRuntimeWork) {
   }
 }
 
-/** 重启 dsh 服务（upgrade=true 时先强制检查 dsh 升级）。 */
+/** 托盘菜单里 DSH 运行时来源标签。 */
+function dshSourceLabel() {
+  switch (runtime.dshSource()) {
+    case 'npm-global': return '（npm 全局）'
+    case 'managed': return '（内置自管）'
+    case 'env': return '（自定义入口）'
+    default: return ''
+  }
+}
+
+/** 重启 dsh 服务（upgrade=true 时先升级 dsh 本体）。 */
 async function restartServer(upgrade) {
   try {
     await server?.stop()
@@ -433,7 +490,9 @@ async function restartServer(upgrade) {
   server = undefined
   if (upgrade) {
     runtime.setDataDir(app.getPath('userData'))
-    await runtime.ensureDsh(pushStatus).catch(() => {})
+    // 升级可能耗时数分钟：先建启动页让进度有处可显示
+    createSplashWindow()
+    await runtime.upgradeDsh(pushStatus).catch(() => {})
   }
   await boot(false)
   // 重建托盘里的版本号
@@ -466,6 +525,7 @@ ipcMain.handle('open-external', (_event, url) => {
 
 ipcMain.handle('get-info', () => ({
   dshVersion: runtime.installedDshVersion() ?? '未安装',
+  dshSource: runtime.dshSource(),
   workspace: readConfig().workspace ?? '默认（用户目录）',
 }))
 
