@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot
+$root = Split-Path $PSScriptRoot -Parent
 
 # ---------- 0. 前置检查 ----------
 if (-not $env:GH_TOKEN) { throw "未设置 GH_TOKEN 环境变量（GitHub token，需 contents:write 权限）`n例如：`$env:GH_TOKEN = 'github_pat_xxx'" }
