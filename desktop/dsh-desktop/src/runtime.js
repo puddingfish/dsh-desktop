@@ -8,7 +8,8 @@
  *   userData/dsh-runtime 自管（registry 官方→npmmirror 自动回退，启动比对
  *   最新版自动升级）。环境变量 DSH_DESKTOP_DSH_ENTRY 可显式指定入口文件。
  * - 服务器生命周期：spawn `node dsh/bin.js web --port <free>`，stdout/stderr 落盘
- *   日志轮询 `dsh web: <url>` 就绪行 + HTTP 探测双保险。
+ *   日志轮询 `dsh web: <url>` 就绪行（dsh ≥0.1.2 的地址带一次性 token，直接采用）
+ *   + HTTP 探测兜底。
  * - 所有子进程 stdio 一律重定向到文件（不用 pipe）：兼容受限执行环境，且天然
  *   留存安装/服务日志便于排查。
  * @module dsh-desktop/runtime
@@ -552,6 +553,27 @@ function probeHttp(port, timeoutMs = 2000) {
   })
 }
 
+/**
+ * 从就绪行提取 dsh web 地址：dsh ≥0.1.2 每次启动生成一次性令牌，就绪行形如
+ * `dsh web: http://127.0.0.1:3080/?token=…`（尾部可能还有 ` (LAN: …)`，取首个
+ * 空白前的地址）。带 token 的地址必须原样交给 WebView——服务器用它换发签名
+ * 会话 cookie 后重定向回干净的 `/`，裸地址会被 401 拒绝。校验协议、回环主机
+ * 与端口和本次启动一致，不匹配返回空串（退回裸地址兜底）。
+ * @returns 可直接加载的完整地址，解析失败返回空串。
+ */
+function parseReadyUrl(line, port) {
+  const match = /dsh web: (\S+)/.exec(line)
+  if (match === null) return ''
+  try {
+    const url = new URL(match[1])
+    const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost'
+    if (url.protocol !== 'http:' || url.port !== String(port) || !loopback) return ''
+    return url.toString()
+  } catch {
+    return ''
+  }
+}
+
 /** 活着的 dsh 服务器（本插件管理范围之外也算）。 */
 class DshServer {
   constructor() {
@@ -564,8 +586,10 @@ class DshServer {
 
   /**
    * 启动 dsh web。stdout/stderr 追加写入 userData/logs/dsh-web.log
-   * （上次启动轮转为 dsh-web.prev.log），就绪判定 = 日志出现 `dsh web:` 行
-   * 或 HTTP 探测通过。
+   * （上次启动轮转为 dsh-web.prev.log）。就绪判定优先采用日志
+   * `dsh web: <url>` 行里的完整地址——dsh ≥0.1.2 该地址带一次性 ?token=，
+   * 必须用它加载（服务器以 token 换发会话 cookie），裸地址会被 401 拒绝；
+   * HTTP 探测只作兜底（日志迟迟无就绪行时退回裸地址，兼容旧版）。
    * @param options - { port, workspace, env, onStatus, onLog }。
    */
   async start(options) {
@@ -604,7 +628,8 @@ class DshServer {
       if (this.child === child) this.child = undefined
       this.onExit?.(code)
     })
-    // 已读日志偏移，轮询时只取新增行推给 onLog
+    // 已读日志偏移，轮询时只取新增行推给 onLog；就绪行里带 token 的地址
+    // 直接采用为本轮服务地址
     let readOffset = 0
     const tailLog = () => {
       try {
@@ -612,19 +637,30 @@ class DshServer {
         if (stat.length <= readOffset) return false
         const chunk = stat.subarray(readOffset)
         readOffset = stat.length
+        let ready = false
         for (const line of chunk.toString('utf8').split('\n')) {
-          if (line.trim() !== '') options.onLog?.(line)
+          if (line.trim() === '') continue
+          options.onLog?.(line)
+          const url = parseReadyUrl(line, port)
+          if (url !== '') {
+            this.url = url
+            ready = true
+          }
         }
-        return chunk.toString('utf8').includes('dsh web:')
+        return ready
       } catch {
         return false
       }
     }
     const deadline = Date.now() + 90_000
+    let httpUpAt = 0
     for (;;) {
       if (this.child !== child) throw new Error('dsh web 进程提前退出')
       if (tailLog()) return this.url
-      if (await probeHttp(port)) return this.url
+      if (httpUpAt === 0 && await probeHttp(port)) httpUpAt = Date.now()
+      // HTTP 已通但就绪行迟迟不出现：再等 3 秒拿 token 地址，拿不到按裸
+      // 地址兜底（旧版 dsh 无 token，裸地址即可用）
+      if (httpUpAt !== 0 && Date.now() - httpUpAt > 3_000) return this.url
       if (Date.now() > deadline) {
         killTree(child.pid)
         this.child = undefined
@@ -675,5 +711,6 @@ module.exports = {
   resolveSystemNode,
   findFreePort,
   probeHttp,
+  parseReadyUrl,
   DshServer,
 }

@@ -131,6 +131,15 @@ function applyTheme(dark) {
   contentView?.setBackgroundColor(dark ? '#151517' : '#f9fafb')
 }
 
+/** 两个地址是否同源（忽略路径与查询差异——token 换发 cookie 后查询串会变）。 */
+function sameOrigin(a, b) {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
+
 function startThemeSync() {
   const view = contentView
   if (view === undefined) return
@@ -143,9 +152,11 @@ function startThemeSync() {
       if (themeTimer === timerId) themeTimer = undefined
       return
     }
-    // 只在真正的 dsh web 页面上读取主题（重连页等本地页保持当前主题）
+    // 只在真正的 dsh web 页面上读取主题（重连页等本地页保持当前主题）。
+    // 按 origin 比较：server.url 可能带 ?token=，页面换发 cookie 后落在
+    // 干净的 / 上，startsWith 会误判。
     const url = view.webContents.getURL()
-    if (server?.url === undefined || !url.startsWith(server.url)) return
+    if (server?.url === undefined || !sameOrigin(url, server.url)) return
     try {
       const dark = await view.webContents.executeJavaScript(
         'document.body.hasAttribute("data-ds-dark-theme")', true)
