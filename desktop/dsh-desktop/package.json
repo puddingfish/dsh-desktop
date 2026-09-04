@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "DSH Desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "DeepSeek Harness 的 Windows 桌面客户端：双击启动、托盘常驻、DSH 运行时与壳自动更新。",
   "main": "src/main.js",
   "author": "dsh-desktop",
