@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react = require("react");
 		let react_dom_client = require("react-dom/client");
-		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");
+		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-store");
 		const h = react.createElement;
 		const useState = react.useState;
 		const useSyncExternalStore = react.useSyncExternalStore;

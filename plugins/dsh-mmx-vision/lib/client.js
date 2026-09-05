@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react = require("react");
-		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");
+		let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-store");
 		const h = react.createElement;
 		const useState = react.useState;
 		//#region css
