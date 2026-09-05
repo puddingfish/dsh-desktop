@@ -1,4 +1,4 @@
-﻿# DSH 三件套 · 插件一键安装/更新脚本
+# DSH 三件套 · 插件一键安装/更新脚本
 #
 # 用法：
 #   .\install-plugins.ps1                    # 打包 + 安装到 web 与 headless 两个 profile
@@ -45,7 +45,7 @@ function Test-MmxAvailable {
 Write-Host "==> 仓库：$repo"
 
 $mmxOk = $ForceMmx -or (Test-MmxAvailable)
-$plugins = @('dsh-model-router')
+$plugins = @('dsh-model-router', 'dsh-reasoning-rescue')
 if ($mmxOk) {
     $plugins += 'dsh-mmx-vision'
 }

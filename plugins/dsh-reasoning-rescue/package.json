@@ -1,0 +1,25 @@
+{
+  "name": "dsh-reasoning-rescue",
+  "version": "0.1.0",
+  "description": "DSH host plugin: detect turns that completed with reasoning-only output (model thought but never answered) and automatically send a rescue follow-up, with loop protection.",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.zh.md"
+  ],
+  "license": "Apache-2.0"
+}

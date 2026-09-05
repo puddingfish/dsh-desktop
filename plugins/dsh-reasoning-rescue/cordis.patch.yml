@@ -1,0 +1,4 @@
+# dsh-reasoning-rescue bundle patch: insert the plugin row into the profile.
+- insert:
+    - id: reasoning-rescue
+      name: 'dsh-reasoning-rescue'
