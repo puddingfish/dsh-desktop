@@ -166,7 +166,13 @@ function startThemeSync() {
   query()
   // 总是重建定时器并绑定当前视图（旧定时器一并清除，全局至多一个）
   if (themeTimer !== undefined) clearInterval(themeTimer)
-  timerId = setInterval(query, 1200)
+  // 3s 轮询 + 窗口隐藏时暂停：executeJavaScript 每 1.2s 注入会打断 renderer 的
+  // JS 引擎（实测 renderer 常驻 60-75% 单核），放宽间隔并在不可见时完全跳过。
+  timerId = setInterval(() => {
+    if (mainWindow === undefined || mainWindow.isDestroyed()) return
+    if (!mainWindow.isVisible() || mainWindow.isMinimized()) return
+    query()
+  }, 3000)
   themeTimer = timerId
 }
 
