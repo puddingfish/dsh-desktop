@@ -1,4 +1,4 @@
-# 把 release\win-unpacked 打成绿色免安装 zip：
+﻿# 把 release\win-unpacked 打成绿色免安装 zip：
 #   release\DSH-Desktop-<版本>-portable-win-x64.zip
 # 解压任意目录 → 双击 "DSH Desktop.exe" 即可运行；无需管理员权限、不写注册表。
 # 用户数据（运行时/配置/会话）存放在 %APPDATA%\DSH Desktop，与解压位置无关。
@@ -27,9 +27,11 @@ DSH Desktop v$version（绿色免安装版）
   （会话/凭证等在用户主目录 ~/.dsh，与桌面端无关）
 
 升级方式：
-  - DSH 本体：启动时轻量检查，新版在启动页选择「立即更新 / 跳过」；
-    托盘菜单「检查 DSH 更新（npm）」随时手动升级。npm 全局模式下
-    也可自行 npm i -g @deepseek-ai/dsh@latest 后重启桌面端。
+  - DSH 本体：启动时轻量检查（默认跟随官方 latest + next 里较新的版本），
+    新版在启动页选择「立即更新 / 跳过」；托盘菜单「检查 DSH 更新（npm）」
+    随时手动升级。环境变量 DSH_DESKTOP_DSH_TAG 可指定通道
+    （默认 "latest,next"；只写 next 即固定跟随预发布通道）。
+    npm 全局模式下也可自行 npm i -g @deepseek-ai/dsh@<版本> 后重启桌面端。
   - 壳（本程序）：下载新版 zip 覆盖解压目录即可（绿色版不自动替换壳本体）。
 
 "@

@@ -93,6 +93,25 @@ const NPM_REGISTRIES = [
   'https://registry.npmmirror.com',
 ]
 
+/** dsh 的 npm 包名。 */
+const DSH_PACKAGE = '@deepseek-ai/dsh'
+
+/**
+ * 判断「有新版本」时参考的 dist-tag：默认同时看 latest 与 next，取语义化版本
+ * 较新的那个。官方 latest 会长期停在旧版本（0.2.0-rc.2 自 2026-09-29 起未动），
+ * 0.2.1 系列只发布在 next 上——只认 latest 会永远发现不了新版本。
+ * 环境变量 DSH_DESKTOP_DSH_TAG 可覆盖（逗号分隔；只写一个即固定该通道）。
+ */
+const DSH_DIST_TAGS = ['latest', 'next']
+
+/** 解析 DSH_DESKTOP_DSH_TAG 覆盖值；未设置/非法时回落到默认通道。 */
+function dshDistTags() {
+  const override = process.env.DSH_DESKTOP_DSH_TAG
+  if (typeof override !== 'string' || override.trim() === '') return DSH_DIST_TAGS
+  const tags = override.split(',').map((tag) => tag.trim()).filter((tag) => tag !== '')
+  return tags.length === 0 ? DSH_DIST_TAGS : tags
+}
+
 /** 状态文件：nodeExe（系统或下载的 node.exe）、已装 dsh 版本、npm registry。 */
 function readState() {
   try {
@@ -237,12 +256,73 @@ async function latestNodeVersion() {
   return hit === undefined ? undefined : hit.version
 }
 
-/** npm registry 上 @deepseek-ai/dsh 的最新版本（官方不通就走镜像）。 */
+/**
+ * 解析版本号为 { nums: [major, minor, patch], pre: [预发布标识符…] }。
+ * 忽略 `v` 前缀与 `+build` 元数据；数字段缺失/非数字按 0 处理。
+ */
+function parseDshVersion(version) {
+  const text = String(version ?? '').trim().replace(/^v/, '')
+  const [core, ...rest] = text.split('+')[0].split('-')
+  const nums = core.split('.').slice(0, 3).map((part) => Number.parseInt(part, 10) || 0)
+  while (nums.length < 3) nums.push(0)
+  return { nums, pre: rest.length === 0 ? [] : rest.join('-').split('.').filter((id) => id !== '') }
+}
+
+/**
+ * 语义化版本比较（semver §11，含预发布排序）：主/次/补丁号优先；号相同时比
+ * 预发布标识符——数字标识符按数值比（rc.10 > rc.9），纯数字小于含字母
+ * （alpha.5 < rc.1），预发布整体小于同号正式版（0.2.1-rc.2 < 0.2.1）。
+ * @returns 负数 a<b，0 a==b，正数 a>b。
+ */
+function compareDshVersions(a, b) {
+  const left = parseDshVersion(a)
+  const right = parseDshVersion(b)
+  for (let i = 0; i < 3; i += 1) {
+    if (left.nums[i] !== right.nums[i]) return left.nums[i] > right.nums[i] ? 1 : -1
+  }
+  if (left.pre.length === 0 && right.pre.length === 0) return 0
+  if (left.pre.length === 0) return 1
+  if (right.pre.length === 0) return -1
+  const size = Math.max(left.pre.length, right.pre.length)
+  for (let i = 0; i < size; i += 1) {
+    const l = left.pre[i]
+    const r = right.pre[i]
+    if (l === undefined) return -1
+    if (r === undefined) return 1
+    const lNum = /^\d+$/.test(l)
+    const rNum = /^\d+$/.test(r)
+    if (lNum && rNum) {
+      const li = Number.parseInt(l, 10)
+      const ri = Number.parseInt(r, 10)
+      if (li !== ri) return li > ri ? 1 : -1
+    } else if (lNum !== rNum) {
+      return lNum ? -1 : 1
+    } else if (l !== r) {
+      return l > r ? 1 : -1
+    }
+  }
+  return 0
+}
+
+/**
+ * npm registry 上 @deepseek-ai/dsh 的最新版本号（官方不通就走镜像）。
+ * 读 DSH_DIST_TAGS 里各标签并取语义化版本最大者——官方无论把新版本发在
+ * latest 还是只发在 next 上，都能被发现；再配合 compareDshVersions 的比较，
+ * 已装版本更新时不会被误判成「有更新」。
+ * @returns {Promise<string>} 形如 `0.2.1-rc.2`。
+ */
 async function latestDshVersion() {
+  const tags = dshDistTags()
   for (const registry of NPM_REGISTRIES) {
     try {
-      const response = await fetch(`${registry}/@deepseek-ai/dsh/latest`, { signal: AbortSignal.timeout(8000) })
-      if (response.ok) return (await response.json()).version
+      const response = await fetch(`${registry}/-/package/${DSH_PACKAGE}/dist-tags`, { signal: AbortSignal.timeout(8000) })
+      if (!response.ok) continue
+      const mapping = await response.json()
+      const versions = tags
+        .map((tag) => mapping[tag])
+        .filter((version) => typeof version === 'string' && version !== '')
+      if (versions.length === 0) continue
+      return versions.reduce((best, version) => (compareDshVersions(version, best) > 0 ? version : best))
     } catch { /* 走下一个 registry */ }
   }
   throw new Error('npm registry 不可达（官方与镜像均失败）')
@@ -263,13 +343,14 @@ function installedDshVersion() {
 /**
  * 当前 dsh 版本是否 ≥ 指定版本（只比 x.y.z 数字段；预发布后缀如 -rc.2
  * 视为等于其主版本，不单独比较——发布候选即视为已具备该版本特性）。
+ * 唯一调用点是 --no-open 的传参判断（0.1.1-rc.x 也要带上该参数），所以这里
+ * 刻意忽略预发布段，与 compareDshVersions 的严格排序不同。
  */
 function dshVersionAtLeast(minVersion) {
   const current = installedDshVersion()
   if (current === undefined) return false
-  const parse = (v) => v.replace(/^v/, '').split(/[.-]/).slice(0, 3).map((n) => Number.parseInt(n, 10) || 0)
-  const [cMaj, cMin, cPat] = parse(current)
-  const [mMaj, mMin, mPat] = parse(minVersion)
+  const [cMaj, cMin, cPat] = parseDshVersion(current).nums
+  const [mMaj, mMin, mPat] = parseDshVersion(minVersion).nums
   if (cMaj !== mMaj) return cMaj > mMaj
   if (cMin !== mMin) return cMin > mMin
   return cPat >= mPat
@@ -470,10 +551,11 @@ async function ensureDsh(onStatus) {
     return null
   }
   const latest = await latestDshVersion().catch(() => undefined)
-  onStatus?.('安装 DeepSeek Harness', latest !== undefined ? `@deepseek-ai/dsh@${latest}` : '最新版')
+  const spec = latest === undefined ? `${DSH_PACKAGE}@latest` : `${DSH_PACKAGE}@${latest}`
+  onStatus?.('安装 DeepSeek Harness', spec)
   mkdirSync(dshRuntime, { recursive: true })
   writeFileSync(path.join(dshRuntime, 'package.json'), JSON.stringify({ name: 'dsh-desktop-runtime', private: true }, null, 2))
-  await npmInstallWithFallback(nodeExe, npmCli, ['install', '@deepseek-ai/dsh@latest'], dshRuntime, onStatus)
+  await npmInstallWithFallback(nodeExe, npmCli, ['install', spec], dshRuntime, onStatus)
   log('dsh installed:', installedDshVersion())
   return `dsh ${installedDshVersion()} 已安装`
 }
@@ -481,13 +563,18 @@ async function ensureDsh(onStatus) {
 /**
  * 查询 dsh 更新（不安装）：
  * @returns { available, installed, latest, source }——installed/latest 均可能为
- * undefined（读不到/查不到），available 仅在两者皆有且不等时为 true。
+ * undefined（读不到/查不到）；available 仅在 registry 版本「严格新于」已装版本
+ * 时为 true（语义化比较，含 -rc.N 预发布排序）。
+ *
+ * 只判断两者是否相等会把「已装版本比 registry 还新」误判成可升级：官方 latest
+ * 停在 0.2.0-rc.2 时，已装 0.2.1-rc.1 的用户会收到「0.2.1-rc.1 → 0.2.0-rc.2」
+ * 这种降级提示，点「升级」反而把版本降回去。
  */
 async function checkDshUpdate() {
   const installed = installedDshVersion()
   const latest = await latestDshVersion().catch(() => undefined)
   return {
-    available: installed !== undefined && latest !== undefined && installed !== latest,
+    available: installed !== undefined && latest !== undefined && compareDshVersions(latest, installed) > 0,
     installed,
     latest,
     source: dshSource(),
@@ -496,8 +583,11 @@ async function checkDshUpdate() {
 
 /**
  * 执行 dsh 升级（用户在启动页/托盘菜单明确选择后调用）：
- * - npm-global 来源：npm i -g @deepseek-ai/dsh@latest（装进 %APPDATA%\npm）
+ * - npm-global 来源：npm i -g @deepseek-ai/dsh@<version>（装进 %APPDATA%\npm）
  * - managed 来源：npm install 到 userData/dsh-runtime
+ * 装的是刚查到的具体版本号而不是 @latest 标签：保证装的正是提示里那个版本，
+ * 也避免「查询」与「安装」之间标签漂移；registry 上不比已装版本新时直接拒绝，
+ * 从根上杜绝降级。
  * @returns 升级后的版本号。
  */
 async function upgradeDsh(onStatus) {
@@ -505,15 +595,20 @@ async function upgradeDsh(onStatus) {
   const nodeExe = nodeExePath()
   const npmCli = npmCliPath()
   if (nodeExe === '' || npmCli === '') throw new Error('Node 运行时未就绪')
+  const installed = installedDshVersion()
+  const latest = await latestDshVersion().catch(() => undefined)
+  if (installed !== undefined && latest !== undefined && compareDshVersions(latest, installed) <= 0) {
+    throw new Error(`registry 上只有 ${latest}，不比已装的 ${installed} 新，已取消升级`)
+  }
+  const spec = latest === undefined ? `${DSH_PACKAGE}@latest` : `${DSH_PACKAGE}@${latest}`
   if (dshSource() === 'npm-global') {
-    onStatus?.('升级 DeepSeek Harness（npm 全局）', 'npm i -g @deepseek-ai/dsh@latest')
+    onStatus?.('升级 DeepSeek Harness（npm 全局）', `npm i -g ${spec}`)
     // 全局安装 cwd 无关紧要（install -g 按 prefix 装入），取 userData 兜底
-    await npmInstallWithFallback(nodeExe, npmCli, ['install', '-g', '@deepseek-ai/dsh@latest'], dataDir, onStatus)
+    await npmInstallWithFallback(nodeExe, npmCli, ['install', '-g', spec], dataDir, onStatus)
     log('dsh (global) upgraded to:', installedDshVersion())
   } else {
-    const latest = await latestDshVersion().catch(() => undefined)
     onStatus?.('升级 DeepSeek Harness', `${installedDshVersion()} → ${latest ?? '最新版'}`)
-    await npmInstallWithFallback(nodeExe, npmCli, ['install', '@deepseek-ai/dsh@latest'], dshRuntime, onStatus)
+    await npmInstallWithFallback(nodeExe, npmCli, ['install', spec], dshRuntime, onStatus)
     log('dsh (managed) upgraded to:', installedDshVersion())
   }
   return installedDshVersion()
@@ -708,6 +803,7 @@ module.exports = {
   latestDshVersion,
   dshSource,
   dshVersionAtLeast,
+  compareDshVersions,
   resolveSystemNode,
   findFreePort,
   probeHttp,
